@@ -21,7 +21,7 @@ jobs:
           cache: true
           run-install: |
             - args: ['--frozen-lockfile']
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: false
       - if: github.event_name == 'push'
@@ -38,6 +38,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+  jev-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+        with:
+          cache: true
+          run-install: |
+            - args: ['--frozen-lockfile']
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .jev-lint/baseline.json
+          key: jev-lint-${{ github.sha }}
+          restore-keys: jev-lint-
+      - id: jev-lint
+        run: vp exec jev-lint check
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - if: always() && steps.jev-lint.outcome != 'skipped'
+        run: vp exec jev-lint check --config .jev-lint.decider.yaml
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - if: always() && steps.jev-lint.outcome != 'skipped'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .jev-lint/baseline.json
+          key: jev-lint-${{ github.sha }}
 
   autofix:
     needs: verify
@@ -85,11 +117,11 @@ jobs:
           run-install: |
             - args: ['--frozen-lockfile']
       - if: steps.target.outputs.stale != 'true'
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: false
       - if: steps.target.outputs.stale != 'true'
-        uses: anthropics/claude-code-action@cab360f6565aa35a51d6ce9e43f1f4287c0a32ea # v1.0.241
+        uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1.0.248
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
@@ -122,6 +154,29 @@ jobs:
               --body "Fixes verify failure $FAILED_RUN_URL" ||
               echo "::warning::Could not open a pull request; open one from $BRANCH manually"
           fi
+
+  deploy:
+    needs: verify
+    if: github.event_name == 'push' && github.repository == 'masseater/typescript-template'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: deploy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@3754dd7dbdb32bd8f6d28b6043de13ad3a75f21f # v1.21.1
+        with:
+          cache: true
+          run-install: |
+            - args: ['--frozen-lockfile']
+      - run: vp exec alchemy deploy --stage production --yes
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   release:
     needs: verify

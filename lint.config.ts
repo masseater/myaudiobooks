@@ -1,3 +1,13 @@
+import { presets as effectPresets } from "@effect/tsgo/oxlint-presets";
+import eslintReact from "@eslint-react/eslint-plugin";
+import htmlReact from "@html-eslint/eslint-plugin-react";
+import { plugin as shadcn } from "@shadcn/lint";
+import tanstackQuery from "@tanstack/eslint-plugin-query";
+import tanstackRouter from "@tanstack/eslint-plugin-router";
+import { Array as Arr, Record as Rec, String as Str, Struct, pipe } from "effect";
+import baselineJs from "eslint-plugin-baseline-js";
+import reactHooks from "eslint-plugin-react-hooks";
+
 const REACT_STATE_HOOKS: readonly string[] = [
   "useState",
   "useReducer",
@@ -128,22 +138,32 @@ const requiredStack: Readonly<Record<string, readonly string[]>> = {
   ],
 };
 
-const requiredStackEntries = Object.entries(requiredStack).flatMap(([message, modules]) =>
-  modules.map((module) => ({ message, module })),
+const requiredStackEntries = pipe(
+  Rec.toEntries(requiredStack),
+  Arr.flatMap(([message, modules]) =>
+    pipe(
+      modules,
+      Arr.map((module) => ({ message, module })),
+    ),
+  ),
 );
 
-const requiredStackPaths: readonly Readonly<{ name: string; message: string }>[] =
-  requiredStackEntries
-    .filter(({ module }) => !module.includes("*"))
-    .map(({ message, module }) => ({ name: module, message }));
+const requiredStackPaths: readonly Readonly<{ name: string; message: string }>[] = pipe(
+  requiredStackEntries,
+  Arr.filter(({ module }) => !pipe(module, Str.includes("*"))),
+  Arr.map(({ message, module }) => ({ name: module, message })),
+);
 
 const requiredStackPatterns: readonly Readonly<{ group: readonly string[]; message: string }>[] =
-  requiredStackEntries.map(({ message, module }) => {
-    if (module.includes("*")) {
-      return { group: [module, `${module}/**`], message };
-    }
-    return { group: [`${module}/**`], message };
-  });
+  pipe(
+    requiredStackEntries,
+    Arr.map(({ message, module }) => {
+      if (pipe(module, Str.includes("*"))) {
+        return { group: [module, `${module}/**`], message };
+      }
+      return { group: [`${module}/**`], message };
+    }),
+  );
 
 const restrictedImports = {
   paths: [
@@ -171,4 +191,70 @@ const generated = [
   "CHANGELOG.md",
 ];
 
-export { generated, requiredStack, restrictedImports };
+type Rules = Rec.ReadonlyRecord<string, "error">;
+
+const asErrors = (names: readonly string[]): Rules =>
+  Rec.fromEntries(
+    pipe(
+      names,
+      Arr.map((name) => [name, "error"] as const),
+    ),
+  );
+
+const prefixed = (
+  prefix: string,
+  plugin: Readonly<{ rules: Rec.ReadonlyRecord<string, unknown> }>,
+): Rules =>
+  asErrors(
+    pipe(
+      Rec.keys(plugin.rules),
+      Arr.map((rule) => `${prefix}/${rule}`),
+    ),
+  );
+
+const tanstackQueryRules = prefixed("tanstack-query", tanstackQuery);
+
+const tanstackRouterRules = prefixed("tanstack-router", tanstackRouter);
+
+const shadcnRules = prefixed("shadcn", shadcn);
+
+const baselineJsRules = prefixed("baseline-js", baselineJs);
+
+const reactHooksRuleNames = pipe(
+  Struct.keys(reactHooks.configs["recommended-latest"].rules),
+  Arr.map(Str.replace("react-hooks/", "react-hooks-js/")),
+);
+
+const reactHooksRules = asErrors(reactHooksRuleNames);
+
+const eslintReactRuleNames = pipe(
+  Struct.keys(eslintReact.configs["strict-typescript"].rules ?? {}),
+  Arr.filter(
+    (name) => !(pipe(name, Str.replace("@eslint-react/", "react-hooks-js/")) in reactHooksRules),
+  ),
+);
+
+const eslintReactRules = asErrors(eslintReactRuleNames);
+
+const htmlReactRules = asErrors(Struct.keys(htmlReact.configs.all.rules ?? {}));
+
+const effectRuleNames = pipe(
+  Rec.values(effectPresets),
+  Arr.flatMap((preset) => Struct.keys(preset.rules ?? {})),
+);
+
+const effectRules = asErrors(effectRuleNames);
+
+export {
+  baselineJsRules,
+  effectRules,
+  eslintReactRules,
+  generated,
+  htmlReactRules,
+  reactHooksRules,
+  requiredStack,
+  restrictedImports,
+  shadcnRules,
+  tanstackQueryRules,
+  tanstackRouterRules,
+};

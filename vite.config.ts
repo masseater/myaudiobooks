@@ -1,38 +1,18 @@
-import { presets as effectPresets } from "@effect/tsgo/oxlint-presets";
-import eslintReact from "@eslint-react/eslint-plugin";
-import htmlReact from "@html-eslint/eslint-plugin-react";
-import { plugin as shadcn } from "@shadcn/lint";
-import tanstackQuery from "@tanstack/eslint-plugin-query";
-import tanstackRouter from "@tanstack/eslint-plugin-router";
 import baselineJs from "eslint-plugin-baseline-js";
-import reactHooks from "eslint-plugin-react-hooks";
 import { defineConfig } from "vite-plus";
 
-import { generated, restrictedImports } from "./lint.config.ts";
-
-type Rules = Readonly<Record<string, "error">>;
-
-const asErrors = (names: readonly string[]): Rules =>
-  Object.fromEntries(names.map((name) => [name, "error"] as const));
-
-const allRulesOf = (prefix: string, plugin: Readonly<{ rules: object }>): Rules =>
-  asErrors(Object.keys(plugin.rules).map((rule) => `${prefix}/${rule}`));
-
-const reactHooksRules = asErrors(
-  Object.keys(reactHooks.configs["recommended-latest"].rules).map((name) =>
-    name.replace("react-hooks/", "react-hooks-js/"),
-  ),
-);
-
-const eslintReactRules = asErrors(
-  Object.keys(eslintReact.configs["strict-typescript"].rules ?? {}).filter(
-    (name) => !(name.replace("@eslint-react/", "react-hooks-js/") in reactHooksRules),
-  ),
-);
-
-const effectRules = asErrors(
-  Object.values(effectPresets).flatMap((preset) => Object.keys(preset.rules ?? {})),
-);
+import {
+  baselineJsRules,
+  effectRules,
+  eslintReactRules,
+  generated,
+  htmlReactRules,
+  reactHooksRules,
+  restrictedImports,
+  shadcnRules,
+  tanstackQueryRules,
+  tanstackRouterRules,
+} from "./lint.config.ts";
 
 export default defineConfig({
   staged: {
@@ -84,14 +64,14 @@ export default defineConfig({
     rules: {
       "vite-plus/prefer-vite-plus-imports": "error",
       "no-comments/disallowComments": ["error", { allow: ["oxlint-disable", "eslint-disable"] }],
-      ...allRulesOf("tanstack-query", tanstackQuery),
-      ...allRulesOf("tanstack-router", tanstackRouter),
+      ...tanstackQueryRules,
+      ...tanstackRouterRules,
       "drizzle/enforce-delete-with-where": "error",
       "drizzle/enforce-update-with-where": "error",
-      ...allRulesOf("shadcn", shadcn),
-      ...allRulesOf("baseline-js", baselineJs),
+      ...shadcnRules,
+      ...baselineJsRules,
       ...baselineJs.configs.recommended().rules,
-      ...asErrors(Object.keys(htmlReact.configs.all.rules ?? {})),
+      ...htmlReactRules,
       ...reactHooksRules,
       ...eslintReactRules,
       ...effectRules,

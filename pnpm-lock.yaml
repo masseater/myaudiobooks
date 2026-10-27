@@ -233,9 +233,6 @@ catalogs:
     eslint-plugin-react-hooks:
       specifier: 7.1.1
       version: 7.1.1
-    jev-lint:
-      specifier: 0.7.0
-      version: 0.7.0
     skills:
       specifier: 1.7.1
       version: 1.7.1
@@ -320,7 +317,6 @@ packageExtensionsChecksum: sha256-+VMdP1PtirSQ7Lhy8zZaF5Ha03FJIIM31JqoRyxSKXQ=
 
 patchedDependencies:
   '@tanstack/eslint-plugin-start@0.1.0': 364cc40b73326fe59c5d685ac247690de2302e3e731b7b7d37583701f9370644
-  jev-lint@0.7.0: e482068f949218fd0893e69710a21e0b7bb96e425684d6e2c099ba2ecd1dcb21
 
 importers:
 
@@ -392,9 +388,6 @@ importers:
       fallow:
         specifier: catalog:stack
         version: 3.35.0
-      jev-lint:
-        specifier: 'catalog:'
-        version: 0.7.0(patch_hash=e482068f949218fd0893e69710a21e0b7bb96e425684d6e2c099ba2ecd1dcb21)
       renovate:
         specifier: catalog:stack
         version: 44.148.3(supports-color@7.2.0)(typanion@3.14.0)
@@ -7624,11 +7617,6 @@ packages:
   jest-worker@27.5.1:
     resolution: {integrity: sha512-7vuh85V5cdDofPyxn58nrPjBktZo0u9x1g8WtjQol+jZDaE+fhN+cIvTj11GndBnMnyfrUOG1sZQxCdjKh+DKg==}
     engines: {node: '>= 10.13.0'}
-
-  jev-lint@0.7.0:
-    resolution: {integrity: sha512-YoMm23felUmMEW50WCaEotj6EPzd/grjX4pR1tMTFetXPiEkmLzwzmLR684RUg48GW0pzu/HSXTQ9E3yk5TfZA==}
-    engines: {node: '>=24'}
-    hasBin: true
 
   jiti@2.6.1:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
@@ -17516,11 +17504,6 @@ snapshots:
       merge-stream: 2.0.0
       supports-color: 8.1.1
     optional: true
-
-  jev-lint@0.7.0(patch_hash=e482068f949218fd0893e69710a21e0b7bb96e425684d6e2c099ba2ecd1dcb21):
-    dependencies:
-      '@ast-grep/cli': 0.45.3
-      yaml: 2.9.1
 
   jiti@2.6.1: {}
 

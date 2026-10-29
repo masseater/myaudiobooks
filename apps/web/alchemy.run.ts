@@ -27,8 +27,4 @@ const web = Effect.gen(function* web() {
 type WebEnv = InferEnv<typeof web>;
 
 export type { WebEnv };
-export default Stack(
-  "myaudiobooks",
-  { providers: providers(), state: state() },
-  Effect.void,
-);
+export default Stack("myaudiobooks", { providers: providers(), state: state() }, Effect.void);

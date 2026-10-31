@@ -11,11 +11,11 @@ const StopOutput = Schema.Struct({
 
 runHook(
   Effect.gen(function* stopGate() {
-    const verify = yield* runCommand(yield* localBin("vp"), ["run", "verify"]);
+    const verify = yield* runCommand(yield* localBin("vp"), ["run", "--log", "grouped", "verify"]);
     if (!verify.succeeded) {
       yield* writeJson(StopOutput, {
         decision: "block",
-        reason: `vp run verify が失敗している。\n${pipe(verify.output, Str.slice(-REPORTED_OUTPUT_LENGTH))}`,
+        reason: `vp run verify が失敗している。\n${pipe(verify.output, Str.takeRight(REPORTED_OUTPUT_LENGTH))}`,
       });
     }
   }),

@@ -1,15 +1,7 @@
-import {
-  Effect,
-  FileSystem,
-  Option,
-  Path,
-  Schema,
-  String as Str,
-  pipe,
-  Array as Arr,
-} from "effect";
+import { Array as Arr, Effect, Option, Schema, String as Str, pipe } from "effect";
 
 import { getJson, projectDir, runHook, writeJson } from "./env.ts";
+import { HookPlatform } from "./platform.ts";
 
 const TEMPLATE_REPOSITORY = "masseater/typescript-template";
 const MANIFEST_FILE = ".github/release-please/manifest.json";
@@ -34,9 +26,10 @@ const SessionStartOutput = Schema.Struct({
 });
 
 const currentVersion = Effect.gen(function* currentVersion() {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const text = yield* fs.readFileString(path.join(yield* projectDir, MANIFEST_FILE));
+  const platform = yield* HookPlatform;
+  const text = yield* platform
+    .readFile(platform.join(yield* projectDir, MANIFEST_FILE))
+    .pipe(Effect.flatMap((found) => Effect.fromOption(found)));
   const manifest = yield* Schema.decodeEffect(Schema.fromJsonString(Manifest))(text);
   return `v${manifest["."]}`;
 });
@@ -49,21 +42,19 @@ const latestRelease = getJson(
 const instructions = (current: string, release: typeof Release.Type): string => {
   const latest = release.tag_name;
   const remote = `https://github.com/${TEMPLATE_REPOSITORY}.git`;
-  return pipe(
-    [
-      `このリポジトリの元になったテンプレート ${TEMPLATE_REPOSITORY} に新しいリリース ${latest} がある。このリポジトリが取り込んでいるのは ${current} である。`,
-      "最初の応答で、この更新があることと主な変更点をユーザーに伝え、最新状態を取り込むかを聞く。ユーザーの作業依頼があっても、先にこの確認をする。",
-      "取り込むと答えたら、次の手順で差分を取り込む。",
-      `1. git fetch --no-tags ${remote} refs/tags/${current}:refs/template/${current} refs/tags/${latest}:refs/template/${latest}`,
-      `2. git diff refs/template/${current} refs/template/${latest} | git apply --3way`,
-      "3. 衝突を解消し、vp install と vp run verify を通してからコミットする。",
-      "取り込まないと答えたら、何もしない。",
-      `リリースページ: ${release.html_url}`,
-      "リリースノート:",
-      Str.takeLeft(release.body ?? "", NOTES_LENGTH),
-    ],
-    Arr.join("\n"),
-  );
+  const lines = [
+    `このリポジトリの元になったテンプレート ${TEMPLATE_REPOSITORY} に新しいリリース ${latest} がある。このリポジトリが取り込んでいるのは ${current} である。`,
+    "最初の応答で、この更新があることと主な変更点をユーザーに伝え、最新状態を取り込むかを聞く。ユーザーの作業依頼があっても、先にこの確認をする。",
+    "取り込むと答えたら、次の手順で差分を取り込む。",
+    `1. git fetch --no-tags ${remote} refs/tags/${current}:refs/template/${current} refs/tags/${latest}:refs/template/${latest}`,
+    `2. git diff refs/template/${current} refs/template/${latest} | git apply --3way`,
+    "3. 衝突を解消し、vp install と vp run verify を通してからコミットする。",
+    "取り込まないと答えたら、何もしない。",
+    `リリースページ: ${release.html_url}`,
+    "リリースノート:",
+    Str.takeLeft(release.body ?? "", NOTES_LENGTH),
+  ];
+  return pipe(lines, Arr.join("\n"));
 };
 
 runHook(

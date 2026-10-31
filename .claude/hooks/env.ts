@@ -1,10 +1,12 @@
-import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import { runMain } from "@effect/platform-node/NodeRuntime";
+import { layer as nodeServicesLayer } from "@effect/platform-node/NodeServices";
 import {
   Array as Arr,
   Cause,
   Config,
   Effect,
   Exit,
+  FileSystem,
   Function as Fn,
   Layer,
   Option,
@@ -18,7 +20,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { HookPlatform } from "./platform.ts";
-import type { CommandResult, HookServices } from "./platform.ts";
+import type { CommandResult, Sink } from "./platform.ts";
 
 const taggedError = Schema.TaggedError;
 
@@ -29,8 +31,6 @@ class HookBlocked extends taggedError<HookBlocked, { readonly brand: unique symb
 
 const isHookBlocked = Schema.is(HookBlocked);
 
-type Sink = "stdout" | "stderr";
-
 const EXIT_SUCCESS = 0;
 const EXIT_FAILURE = 1;
 const EXIT_BLOCKING = 2;
@@ -38,46 +38,38 @@ const DATA_FIRST_ARITY = 2;
 
 const projectDir = Config.String("CLAUDE_PROJECT_DIR").pipe(Config.withDefault("."));
 
-const localBin = Effect.fn("localBin")(function* localBin(name: string) {
-  const path = yield* Path.Path;
-  const root = path.resolve(yield* projectDir);
-  return path.join(root, "node_modules", ".bin", name);
+const projectRoot = Effect.gen(function* projectRoot() {
+  const platform = yield* HookPlatform;
+  return platform.resolve(yield* projectDir);
 });
 
-const block = (reason: string): Effect.Effect<never, HookBlocked> =>
-  Effect.fail(HookBlocked.make({ reason }));
+const localBin = Effect.fn("localBin")(function* localBin(name: string) {
+  const platform = yield* HookPlatform;
+  return platform.join(yield* projectRoot, "node_modules", ".bin", name);
+});
 
-const blockWhen = ({
-  reasons,
-  heading = [],
-}: Readonly<{
-  reasons: readonly string[];
-  heading?: readonly string[];
-}>): Effect.Effect<void, HookBlocked> => {
+const blockWhen = (reasons: readonly string[]): Effect.Effect<void, HookBlocked> => {
   if (!Arr.isReadonlyArrayNonEmpty(reasons)) {
     return Effect.void;
   }
-  return block(pipe([...heading, ...reasons], Arr.join("\n")));
+  const reason = pipe(reasons, Arr.join("\n"));
+  return Effect.fail(HookBlocked.make({ reason }));
 };
 
-const writeTo: {
-  (text: string): (sink: Sink) => Effect.Effect<void, never, Stdio.Stdio>;
-  (sink: Sink, text: string): Effect.Effect<void, never, Stdio.Stdio>;
-} = Fn.dual(DATA_FIRST_ARITY, (sink: Sink, text: string) =>
+const writeTo = (sink: Sink, text: string): Effect.Effect<void, never, HookPlatform> =>
   Effect.gen(function* write() {
-    const stdio = yield* Stdio.Stdio;
-    yield* Stream.make(text).pipe(Stream.run(stdio[sink]()), Effect.orDie);
-  }),
-);
+    const platform = yield* HookPlatform;
+    yield* platform.write(sink, text);
+  });
 
 const writeJson: {
   <Codec extends Schema.Top>(
     value: Codec["Type"],
-  ): (schema: Codec) => Effect.Effect<void, never, Stdio.Stdio | Codec["EncodingServices"]>;
+  ): (schema: Codec) => Effect.Effect<void, never, HookPlatform | Codec["EncodingServices"]>;
   <Codec extends Schema.Top>(
     schema: Codec,
     value: Codec["Type"],
-  ): Effect.Effect<void, never, Stdio.Stdio | Codec["EncodingServices"]>;
+  ): Effect.Effect<void, never, HookPlatform | Codec["EncodingServices"]>;
 } = Fn.dual(DATA_FIRST_ARITY, <Codec extends Schema.Top>(schema: Codec, value: Codec["Type"]) =>
   Schema.encodeEffect(Schema.fromJsonString(schema))(value).pipe(
     Effect.orDie,
@@ -87,10 +79,10 @@ const writeJson: {
 
 const readHookInput = <Codec extends Schema.Top>(
   schema: Codec,
-): Effect.Effect<Codec["Type"], Schema.SchemaError, Stdio.Stdio | Codec["DecodingServices"]> =>
+): Effect.Effect<Codec["Type"], Schema.SchemaError, HookPlatform | Codec["DecodingServices"]> =>
   Effect.gen(function* read() {
-    const stdio = yield* Stdio.Stdio;
-    const text = yield* stdio.stdin.pipe(Stream.decodeText, Stream.mkString, Effect.orDie);
+    const platform = yield* HookPlatform;
+    const text = yield* platform.readStdin;
     return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(text);
   });
 
@@ -123,6 +115,9 @@ const platformLayer = Layer.effect(
   Effect.gen(function* platform() {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const client = yield* HttpClient.HttpClient;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const stdio = yield* Stdio.Stdio;
     return HookPlatform.of({
       runCommand: (command, args) =>
         spawnCommand(command, args).pipe(
@@ -136,12 +131,20 @@ const platformLayer = Layer.effect(
             Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
             Effect.option,
           ),
+      readStdin: stdio.stdin.pipe(Stream.decodeText, Stream.mkString, Effect.orDie),
+      write: (sink, text) => Stream.make(text).pipe(Stream.run(stdio[sink]()), Effect.orDie),
+      exists: (file) => fs.exists(file).pipe(Effect.orDie),
+      readFile: (file) => fs.readFileString(file).pipe(Effect.option),
+      resolve: (...segments) => path.resolve(...segments),
+      join: (...segments) => path.join(...segments),
+      relative: (from, to) => path.relative(from, to),
+      sep: path.sep,
     });
   }),
 );
 
 const hookLayer = platformLayer.pipe(
-  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer)),
+  Layer.provideMerge(Layer.mergeAll(nodeServicesLayer, FetchHttpClient.layer)),
 );
 
 const runCommand: {
@@ -188,7 +191,7 @@ const exitCodeOf = <Value, Failure>(exit: Exit.Exit<Value, Failure>): number => 
 
 const reportFailure = <Failure>(
   cause: Cause.Cause<Failure>,
-): Effect.Effect<void, never, Stdio.Stdio> =>
+): Effect.Effect<void, never, HookPlatform> =>
   writeTo(
     "stderr",
     `${Option.match(findBlocked(cause), {
@@ -198,14 +201,14 @@ const reportFailure = <Failure>(
   );
 
 const runHookWith =
-  <Provided, LayerFailure>(layer: Layer.Layer<Provided, LayerFailure, HookServices>) =>
-  <Value, Failure>(program: Effect.Effect<Value, Failure, HookServices | Provided>): void => {
+  <Provided, LayerFailure>(layer: Layer.Layer<Provided, LayerFailure, HookPlatform>) =>
+  <Value, Failure>(program: Effect.Effect<Value, Failure, HookPlatform | Provided>): void => {
     const reported = program.pipe(Effect.tapCause(reportFailure));
     const main = Layer.build(Layer.provideMerge(layer, hookLayer)).pipe(
       Effect.flatMap((context) => Effect.provideContext(reported, context)),
       Effect.scoped,
     );
-    NodeRuntime.runMain(main, {
+    runMain(main, {
       disableErrorReporting: true,
       teardown: (exit, onExit) => {
         onExit(exitCodeOf(exit));
@@ -221,6 +224,7 @@ export {
   getJson,
   localBin,
   projectDir,
+  projectRoot,
   readHookInput,
   runCommand,
   runHook,
